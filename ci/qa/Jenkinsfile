@@ -1,0 +1,63 @@
+pipeline {
+    agent any
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '5'))
+    }
+
+    environment {
+        APP_NAME = "nonda-devops-web"
+        DEPLOY_ENV = "qa"
+
+        SHORT_COMMIT = "$GIT_COMMIT".substring(0, 7)
+
+        PACKAGE_VERSION = "0.1.0"
+
+        DOCKER_REPO = "699713854440.dkr.ecr.us-east-1.amazonaws.com/nonda/$APP_NAME"
+        DOCKER_REPO_CREDENTIAL_ID = "ecr:us-east-1:aws-nonda-credential"
+        DOCKER_DIR_BASE = "./docker"
+        DOCKER_FILE_PATH = "$DOCKER_DIR_BASE/$DEPLOY_ENV/Dockerfile"
+        DOCKER_IMAGE_TAG = "$PACKAGE_VERSION-$DEPLOY_ENV.$BUILD_NUMBER.$SHORT_COMMIT"
+
+        DINGTALK_ACCESS_TOKEN = "fe06d7b1589ac606badc3526d25bff2bc2960a4c8dbe0ecaae7fac8d5f81cab7"
+    }
+
+    stages {
+        stage('Install Packages') {
+            steps {
+                sh "sudo npm install"
+            }
+        }
+        stage('Build Packages') {
+            steps {
+                sh "sudo npm run build:prod"
+            }
+        }
+        stage('Build Docker Image') {
+            steps {
+                withDockerRegistry([credentialsId: "$DOCKER_REPO_CREDENTIAL_ID", url: "https://$DOCKER_REPO"]) {
+                    sh "docker build -f $DOCKER_FILE_PATH -t $DOCKER_REPO:$DOCKER_IMAGE_TAG ."
+                }
+            }
+        }
+        stage('Push Docker Image') {
+            steps {
+                withDockerRegistry([credentialsId: "$DOCKER_REPO_CREDENTIAL_ID", url: "https://$DOCKER_REPO"]) {
+                    sh "docker push $DOCKER_REPO:$DOCKER_IMAGE_TAG"
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            dingTalk accessToken: "$DINGTALK_ACCESS_TOKEN", message: "[SUCCESS]image tag => $DOCKER_IMAGE_TAG",
+                    imageUrl: "https://www.iconsdb.com/icons/preview/guacamole-green/check-mark-3-xl.png",
+                    jenkinsUrl: "https://jenkins.nonda.io", notifyPeople: ""
+        }
+        failure {
+            dingTalk accessToken: "$DINGTALK_ACCESS_TOKEN", message: "[FAILED]",
+                    imageUrl: "https://www.iconsdb.com/icons/preview/soylent-red/x-mark-3-xl.png",
+                    jenkinsUrl: "https://jenkins.nonda.io", notifyPeople: ""
+        }
+    }
+}
